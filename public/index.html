@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101a2d">
+    <title>Rapid Response EMS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div id="login-screen" class="login-screen">
+      <div class="login-art" aria-hidden="true">
+        <div class="art-glow"></div>
+        <div class="art-copy">
+          <div class="brand-mark brand-mark-large"><span class="cross">✚</span></div>
+          <p class="eyebrow">RAPID RESPONSE NETWORK</p>
+          <h1>Every second<br>moves us closer.</h1>
+          <p>One connected view for every call, crew, and community.</p>
+          <div class="login-stat"><strong>24<span>/7</span></strong><span>Ready when it matters</span></div>
+        </div>
+        <div class="art-route"><i></i><i></i><i></i><i></i><i></i><b>✚</b></div>
+      </div>
+      <div class="login-panel">
+        <div class="login-form-wrap">
+          <div class="mobile-brand"><span class="brand-mark"><span class="cross">✚</span></span><span>Rapid Response</span></div>
+          <p class="eyebrow">OPERATIONS PORTAL</p>
+          <h2>Welcome back</h2>
+          <p class="muted">Sign in to your emergency response workspace.</p>
+          <form id="login-form" class="form-stack">
+            <label>Email address<input name="email" type="email" placeholder="you@rapidresponse.local" required autocomplete="username"></label>
+            <label>Password<input name="password" type="password" placeholder="Enter your password" required autocomplete="current-password"></label>
+            <button class="button button-primary button-wide" type="submit">Sign in <span>→</span></button>
+            <p id="login-error" class="form-error" role="alert"></p>
+          </form>
+          <div class="demo-box">
+            <div class="demo-heading"><span class="demo-dot"></span> DEMO ACCESS</div>
+            <div class="demo-accounts">
+              <button type="button" data-demo="dispatch@rapidresponse.local|Dispatch123!"><span>Dispatcher</span><span>Try →</span></button>
+              <button type="button" data-demo="admin@rapidresponse.local|Admin123!"><span>Administrator</span><span>Try →</span></button>
+              <button type="button" data-demo="driver@rapidresponse.local|Driver123!"><span>Ambulance driver</span><span>Try →</span></button>
+              <button type="button" data-demo="requester@rapidresponse.local|Request123!"><span>Requester</span><span>Try →</span></button>
+            </div>
+            <p>Run <code>npm run seed</code> to enable demo accounts.</p>
+          </div>
+          <p class="login-foot">A safer, faster response starts here.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="app-shell" class="app-shell hidden">
+      <aside class="sidebar">
+        <a class="brand" href="#" data-view-link="overview">
+          <span class="brand-mark"><span class="cross">✚</span></span>
+          <span class="brand-name">rapid<span>response</span><small>EMERGENCY SERVICES</small></span>
+        </a>
+        <div class="side-section-label">WORKSPACE</div>
+        <nav class="main-nav" aria-label="Main navigation">
+          <button class="nav-link active" data-view="overview"><span class="nav-icon">◫</span>Overview</button>
+          <button class="nav-link" data-view="requests"><span class="nav-icon">▤</span>Emergency requests<span class="nav-count" id="nav-active-count">0</span></button>
+          <button class="nav-link" data-view="new-request"><span class="nav-icon">＋</span>New request</button>
+          <button class="nav-link" data-view="dispatch" data-roles="admin,dispatcher"><span class="nav-icon">⌁</span>Dispatch board<span class="live-pulse"></span></button>
+          <button class="nav-link" data-view="tracking"><span class="nav-icon">◎</span>Live tracking</button>
+        </nav>
+        <div class="side-section-label side-section-spaced">RESOURCES</div>
+        <nav class="main-nav" aria-label="Resources">
+          <button class="nav-link" data-view="fleet" data-roles="admin,dispatcher"><span class="nav-icon">▰</span>Ambulance fleet</button>
+          <button class="nav-link" data-view="drivers" data-roles="admin,dispatcher"><span class="nav-icon">♙</span>Driver activity</button>
+          <button class="nav-link" data-view="reports" data-roles="admin,dispatcher"><span class="nav-icon">▥</span>Reports</button>
+          <button class="nav-link" data-view="team" data-roles="admin"><span class="nav-icon">♧</span>Team & access</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="service-card"><span class="service-icon">✚</span><span><b>All systems ready</b><small>Response network online</small></span><i></i></div>
+          <button class="profile-button" id="profile-button">
+            <span class="avatar" id="user-avatar">AM</span>
+            <span class="profile-copy"><b id="user-name">Alex Morgan</b><small id="user-role">Administrator</small></span>
+            <span class="profile-menu">···</span>
+          </button>
+        </div>
+      </aside>
+      <main class="main-area">
+        <header class="topbar">
+          <div class="crumb"><span>Rapid Response</span><i>/</i><b id="page-crumb">Overview</b></div>
+          <div class="topbar-actions">
+            <div class="network-status"><span class="status-dot"></span><span>Network operational</span></div>
+            <button class="icon-button" id="refresh-button" aria-label="Refresh data" title="Refresh">↻</button>
+            <div class="top-date" id="current-date"></div>
+            <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
+          </div>
+        </header>
+        <div class="content" id="view-container"></div>
+      </main>
+      <div id="toast" class="toast" role="status"></div>
+      <div id="modal-root"></div>
+    </div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
