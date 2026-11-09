@@ -108,6 +108,7 @@ tbody tr:hover { background: #fbfcff; }
 .status-pending { color: #c38020; background: #fff6e7; }
 .status-dispatched, .status-en-route { color: #4a68dd; background: #edf1ff; }
 .status-on-scene { color: #a45ac5; background: #f7edfb; }
+.status-picked-up, .status-transporting { color: #2376a6; background: #eaf5fb; }
 .status-completed { color: #138b72; background: #e8f7f2; }
 .status-cancelled, .status-maintenance { color: #d25764; background: #fff0f1; }
 .status-available { color: #138b72; background: #e8f7f2; }

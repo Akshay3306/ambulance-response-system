@@ -15,7 +15,7 @@ router.get("/", async (req, res, next) => {
     const filter = {};
     if (req.user.role === "driver") filter.assignedDriver = req.user._id;
     if (req.user.role === "requester") filter["requester.userId"] = req.user._id;
-    if (req.query.status && ["pending", "dispatched", "en-route", "on-scene", "completed", "cancelled"].includes(req.query.status)) {
+    if (req.query.status && ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"].includes(req.query.status)) {
       filter.status = req.query.status;
     }
     const requests = await EmergencyRequest.find(filter)
@@ -67,6 +67,11 @@ router.patch("/:id/dispatch", allowRoles("admin", "dispatcher"), async (req, res
     }
     const driver = await User.findOne({ _id: driverId, role: "driver", active: true });
     if (!driver) return res.status(400).json({ error: "Choose an active ambulance driver." });
+    const driverBusy = await EmergencyRequest.exists({
+      assignedDriver: driver._id,
+      status: { $in: ["dispatched", "en-route", "on-scene", "picked-up", "transporting"] },
+    });
+    if (driverBusy) return res.status(409).json({ error: "That driver is already assigned to an active call." });
 
     const request = await EmergencyRequest.findOne({ _id: req.params.id, status: "pending" });
     if (!request) return res.status(404).json({ error: "Pending request not found." });
@@ -116,7 +121,7 @@ router.patch("/:id/dispatch", allowRoles("admin", "dispatcher"), async (req, res
 router.patch("/:id/status", async (req, res, next) => {
   try {
     const nextStatus = req.body.status;
-    if (!["dispatched", "en-route", "on-scene", "completed", "cancelled"].includes(nextStatus)) {
+    if (!["dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"].includes(nextStatus)) {
       return res.status(400).json({ error: "Select a valid next status." });
     }
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid emergency request ID." });
@@ -136,6 +141,8 @@ router.patch("/:id/status", async (req, res, next) => {
       $push: { timeline: { status: nextStatus, at: updatedAt, actor: req.user._id, note: String(req.body.note || "").slice(0, 200) } },
     };
     if (nextStatus === "on-scene") update.$set.arrivedAt = updatedAt;
+    if (nextStatus === "picked-up") update.$set.pickedUpAt = updatedAt;
+    if (nextStatus === "transporting") update.$set.transportStartedAt = updatedAt;
     if (nextStatus === "completed") update.$set.completedAt = updatedAt;
     const updatedRequest = await EmergencyRequest.findOneAndUpdate(
       { _id: request._id, status: request.status },
@@ -149,6 +156,8 @@ router.patch("/:id/status", async (req, res, next) => {
       });
     } else if (nextStatus === "on-scene" && updatedRequest.assignedAmbulance) {
       await Ambulance.updateOne({ _id: updatedRequest.assignedAmbulance, activeRequest: updatedRequest._id }, { $set: { status: "on-scene" } });
+    } else if (["picked-up", "transporting"].includes(nextStatus) && updatedRequest.assignedAmbulance) {
+      await Ambulance.updateOne({ _id: updatedRequest.assignedAmbulance, activeRequest: updatedRequest._id }, { $set: { status: "transporting" } });
     }
     await updatedRequest.populate([
       { path: "assignedAmbulance", select: "callSign vehicle location status" },

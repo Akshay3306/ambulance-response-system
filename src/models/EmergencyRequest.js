@@ -19,7 +19,7 @@ const emergencyRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "dispatched", "en-route", "on-scene", "completed", "cancelled"],
+      enum: ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"],
       default: "pending",
       index: true,
     },
@@ -33,6 +33,8 @@ const emergencyRequestSchema = new mongoose.Schema(
     }],
     dispatchedAt: { type: Date, default: null },
     arrivedAt: { type: Date, default: null },
+    pickedUpAt: { type: Date, default: null },
+    transportStartedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     estimatedMinutes: { type: Number, default: null, min: 1, max: 240 },
   },

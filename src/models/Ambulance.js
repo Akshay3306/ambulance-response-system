@@ -5,7 +5,7 @@ const ambulanceSchema = new mongoose.Schema(
     callSign: { type: String, required: true, unique: true, trim: true },
     vehicle: { type: String, required: true, trim: true },
     station: { type: String, required: true, trim: true },
-    status: { type: String, enum: ["available", "assigned", "on-scene", "maintenance"], default: "available" },
+    status: { type: String, enum: ["available", "assigned", "on-scene", "transporting", "maintenance"], default: "available" },
     driver: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     activeRequest: { type: mongoose.Schema.Types.ObjectId, ref: "EmergencyRequest", default: null },
     location: {

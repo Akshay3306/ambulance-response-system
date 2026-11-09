@@ -9,7 +9,7 @@ An emergency ambulance request, dispatch, and tracking system for a DevOps & Ful
 - Role-aware sign-in for **Admin**, **Dispatcher**, **Ambulance Driver**, and **Requester**.
 - Create emergency requests with caller/patient contact details, incident type and priority, pickup address, coordinates, and notes.
 - Assign an available ambulance and driver; vehicle assignment is conditionally updated to prevent two dispatchers from taking the same available unit.
-- Follow the request workflow: **Pending → Dispatched → En route → On scene → Completed**. Terminal requests cannot be reopened.
+- Follow the request workflow: **Pending → Dispatched → En route to pickup → On scene → Picked up → Transporting → Completed**. Terminal requests cannot be reopened.
 - Review a simulated city map, fleet availability, active incidents, and estimated response time.
 - Four operational reports: **Emergency Request**, **Ambulance Utilization**, **Response Time**, and **Driver Activity**.
 - API role checks, password hashing, signed HTTP-only session cookie, login rate limiting, health check, and input validation.

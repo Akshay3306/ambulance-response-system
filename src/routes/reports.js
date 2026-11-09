@@ -76,7 +76,7 @@ router.get("/driver-activity", async (req, res, next) => {
   try {
     const report = await EmergencyRequest.aggregate([
       { $match: { ...dateFilter(req.query), assignedDriver: { $ne: null } } },
-      { $group: { _id: "$assignedDriver", assigned: { $sum: 1 }, completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } }, active: { $sum: { $cond: [{ $in: ["$status", ["dispatched", "en-route", "on-scene"]] }, 1, 0] } } } },
+      { $group: { _id: "$assignedDriver", assigned: { $sum: 1 }, completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } }, active: { $sum: { $cond: [{ $in: ["$status", ["dispatched", "en-route", "on-scene", "picked-up", "transporting"]] }, 1, 0] } } } },
       { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "driver" } },
       { $unwind: "$driver" },
       { $project: { driver: "$driver.name", assigned: 1, completed: 1, active: 1 } },
@@ -94,7 +94,7 @@ router.get("/summary", async (req, res, next) => {
     const [requests, fleetCount, driverCount, recent] = await Promise.all([
       EmergencyRequest.aggregate([
         { $match: match },
-        { $group: { _id: null, total: { $sum: 1 }, active: { $sum: { $cond: [{ $in: ["$status", ["pending", "dispatched", "en-route", "on-scene"]] }, 1, 0] } }, completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } } } },
+        { $group: { _id: null, total: { $sum: 1 }, active: { $sum: { $cond: [{ $in: ["$status", ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting"]] }, 1, 0] } }, completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } } } },
       ]),
       Ambulance.countDocuments(),
       User.countDocuments({ role: "driver", active: true }),

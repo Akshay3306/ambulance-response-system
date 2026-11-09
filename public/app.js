@@ -25,7 +25,8 @@ const viewTitles = {
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const activeStatuses = ["pending", "dispatched", "en-route", "on-scene"];
+const activeStatuses = ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting"];
+const responseUnitStatuses = ["assigned", "on-scene", "transporting"];
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -72,7 +73,13 @@ function canUpdateRequest(request) {
 }
 
 function nextAction(status) {
-  return ({ dispatched: ["en-route", "Start route"], "en-route": ["on-scene", "Mark on scene"], "on-scene": ["completed", "Complete call"] })[status] || null;
+  return ({
+    dispatched: ["en-route", "En route to pickup"],
+    "en-route": ["on-scene", "Arrived at pickup"],
+    "on-scene": ["picked-up", "Mark patient picked up"],
+    "picked-up": ["transporting", "Start hospital transport"],
+    transporting: ["completed", "Complete transport"],
+  })[status] || null;
 }
 
 async function api(url, options = {}) {
@@ -107,6 +114,7 @@ function showLogin() {
 
 function showApp(user) {
   state.user = user;
+  state.view = user.role === "requester" ? "requests" : "overview";
   $("#login-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   $("#user-name").textContent = user.name;
@@ -163,7 +171,7 @@ function requestTable(requests, options = {}) {
     return `<tr>
       <td><span class="request-id">${escapeHtml(request.requestNumber)}</span><span class="secondary-cell">${escapeHtml(request.requester?.name || "Requester")}</span></td>
       <td><span class="primary-cell">${escapeHtml(titleCase(request.emergencyType))}</span><span class="secondary-cell">${escapeHtml(request.patientName || "Patient details pending")}</span></td>
-      <td><span class="primary-cell">${escapeHtml(request.pickup?.address)}</span><span class="secondary-cell">${escapeHtml(request.assignedAmbulance?.callSign || "Awaiting assignment")}</span></td>
+      <td><span class="primary-cell">${escapeHtml(request.pickup?.address)}</span><span class="secondary-cell">${escapeHtml(request.assignedAmbulance?.callSign || "Awaiting assignment")}${request.estimatedMinutes ? ` · ~${request.estimatedMinutes} min ETA` : ""}</span></td>
       <td>${priorityPill(request.priority)}</td><td>${statusPill(request.status)}</td><td>${escapeHtml(elapsed(request.createdAt))}</td>
       ${showActions ? `<td>${action}</td>` : ""}</tr>`;
   }).join("")}</tbody></table></div>`;
@@ -173,7 +181,7 @@ function renderOverview() {
   const active = state.requests.filter((request) => activeStatuses.includes(request.status));
   const completed = state.requests.filter((request) => request.status === "completed");
   const available = state.fleet.filter((ambulance) => ambulance.status === "available").length;
-  const occupied = state.fleet.filter((ambulance) => ["assigned", "on-scene"].includes(ambulance.status)).length;
+  const occupied = state.fleet.filter((ambulance) => responseUnitStatuses.includes(ambulance.status)).length;
   const responses = completed.map((request) => {
     const sent = new Date(request.dispatchedAt || 0);
     const arrived = new Date(request.arrivedAt || 0);
@@ -210,7 +218,7 @@ function renderOverview() {
 }
 
 function renderRequests() {
-  const filters = `<div class="filter-row"><input id="request-search" class="search-input" type="search" placeholder="Search request, patient, or location" value="${escapeHtml(state.requestSearch)}"><select id="request-status" class="filter-select"><option value="all">All statuses</option>${["pending", "dispatched", "en-route", "on-scene", "completed", "cancelled"].map((status) => `<option value="${status}" ${state.requestFilter === status ? "selected" : ""}>${escapeHtml(titleCase(status))}</option>`).join("")}</select></div>`;
+  const filters = `<div class="filter-row"><input id="request-search" class="search-input" type="search" placeholder="Search request, patient, or location" value="${escapeHtml(state.requestSearch)}"><select id="request-status" class="filter-select"><option value="all">All statuses</option>${["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"].map((status) => `<option value="${status}" ${state.requestFilter === status ? "selected" : ""}>${escapeHtml(titleCase(status))}</option>`).join("")}</select></div>`;
   const action = state.user.role === "driver" ? "" : `<button class="button button-primary" data-nav="new-request">＋ New request</button>`;
   $("#view-container").innerHTML = `${heading("CASE MANAGEMENT", "Emergency requests", "Review incidents, track their progress, and coordinate the next step.", action)}
     ${filters}<section class="panel list-panel" id="request-table">${requestTable(filteredRequests(), { empty: "No requests match your filters." })}</section>`;
@@ -288,11 +296,16 @@ function renderNewRequest() {
 function renderDispatch() {
   const pending = state.requests.filter((request) => request.status === "pending");
   const available = state.fleet.filter((unit) => unit.status === "available");
+  const busyDrivers = new Set(state.requests
+    .filter((request) => activeStatuses.includes(request.status))
+    .map((request) => String(request.assignedDriver?._id || request.assignedDriver))
+    .filter((id) => id !== "undefined" && id !== "null"));
+  const availableDrivers = state.drivers.filter((driver) => !busyDrivers.has(String(driver._id)));
   $("#view-container").innerHTML = `${heading("COORDINATION CENTER", "Dispatch board", "Assign the right crew and vehicle to each incoming emergency.", `<button class="button button-soft" id="dispatch-refresh">↻ Refresh queue</button>`)}
     <div class="dispatch-layout"><section class="panel"><div class="panel-header"><div><h2>Awaiting dispatch <span class="nav-count" style="display:inline-block;margin-left:5px">${pending.length}</span></h2><p class="panel-subtitle">Prioritised by severity · oldest first</p></div></div>
       ${pending.length ? pending.slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((request, index) => `<article class="queue-card">
         <span class="queue-number">${String(index + 1).padStart(2, "0")}</span><div class="queue-content"><strong>${escapeHtml(request.requestNumber)} · ${escapeHtml(titleCase(request.emergencyType))} ${priorityPill(request.priority)}</strong><small>${escapeHtml(request.pickup.address)} · ${escapeHtml(request.requester.name)} · ${escapeHtml(request.requester.phone)} · ${escapeHtml(elapsed(request.createdAt))}</small>
-        <form class="dispatch-form" data-dispatch-form="${request._id}"><select class="filter-select" name="ambulanceId" required aria-label="Select available ambulance"><option value="">Ambulance</option>${available.map((unit) => `<option value="${unit._id}">${escapeHtml(unit.callSign)} · ${escapeHtml(unit.station)}</option>`).join("")}</select><select class="filter-select" name="driverId" required aria-label="Select driver"><option value="">Driver</option>${state.drivers.map((driver) => `<option value="${driver._id}">${escapeHtml(driver.name)}</option>`).join("")}</select><button class="button button-primary button-small" type="submit" ${!available.length || !state.drivers.length ? "disabled" : ""}>Dispatch →</button></form></div>
+        <form class="dispatch-form" data-dispatch-form="${request._id}"><select class="filter-select" name="ambulanceId" required aria-label="Select available ambulance"><option value="">Ambulance</option>${available.map((unit) => `<option value="${unit._id}">${escapeHtml(unit.callSign)} · ${escapeHtml(unit.station)}</option>`).join("")}</select><select class="filter-select" name="driverId" required aria-label="Select available driver"><option value="">Driver</option>${availableDrivers.map((driver) => `<option value="${driver._id}">${escapeHtml(driver.name)}</option>`).join("")}</select><button class="button button-primary button-small" type="submit" ${!available.length || !availableDrivers.length ? "disabled" : ""}>Dispatch →</button></form></div>
         </article>`).join("") : `<div class="empty-state">All caught up. There are no requests waiting for dispatch.</div>`}
       </section>
       <aside class="panel"><div class="panel-header"><div><h2>Units ready to respond</h2><p class="panel-subtitle">${available.length} of ${state.fleet.length} vehicles available</p></div></div>
@@ -324,12 +337,12 @@ function renderTracking() {
   $("#view-container").innerHTML = `${heading("FIELD OPERATIONS", "Live tracking", "A live operations view of your fleet and active incidents.", `<span class="status-pill status-available">● Simulated map view</span>`)}
     <div class="tracking-layout"><section class="panel"><div class="panel-header"><div><h2>Response network · Hyderabad</h2><p class="panel-subtitle">Vehicle and incident positions · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div><button class="text-button" id="tracking-refresh">↻ Refresh</button></div>
       <div class="map-card"><span class="map-label l1">BANJARA HILLS</span><span class="map-label l2">JUBILEE HILLS</span><span class="map-label l3">MASAB TANK</span><span class="map-label l4">MADHAPUR</span>${markers}<div class="map-legend"><span><i class="legend-dot"></i>Ambulance</span><span><i class="legend-dot red"></i>Incident</span></div></div></section>
-      <aside class="tracking-aside"><section class="panel live-card"><div class="live-card-head"><strong>Active response units</strong><small>${state.fleet.filter((unit) => ["assigned", "on-scene"].includes(unit.status)).length} on call</small></div>
-      ${state.fleet.filter((unit) => ["assigned", "on-scene"].includes(unit.status)).length ? state.fleet.filter((unit) => ["assigned", "on-scene"].includes(unit.status)).map((unit) => {
+      <aside class="tracking-aside"><section class="panel live-card"><div class="live-card-head"><strong>Active response units</strong><small>${state.fleet.filter((unit) => responseUnitStatuses.includes(unit.status)).length} on call</small></div>
+      ${state.fleet.filter((unit) => responseUnitStatuses.includes(unit.status)).length ? state.fleet.filter((unit) => responseUnitStatuses.includes(unit.status)).map((unit) => {
         const request = state.requests.find((item) => String(item.assignedAmbulance?._id || item.assignedAmbulance) === String(unit._id) && activeStatuses.includes(item.status));
-        return `<div class="live-unit"><span class="vehicle-icon">▰</span><span class="live-unit-copy"><b>${escapeHtml(unit.callSign)} · ${escapeHtml(unit.driver?.name || "Crew assigned")}</b><small>${escapeHtml(request?.requestNumber || "Active call")} · ${escapeHtml(request?.pickup.address || unit.station)}</small></span>${statusPill(unit.status)}</div>`;
+        return `<div class="live-unit"><span class="vehicle-icon">▰</span><span class="live-unit-copy"><b>${escapeHtml(unit.callSign)} · ${escapeHtml(unit.driver?.name || "Crew assigned")}</b><small>${escapeHtml(request?.requestNumber || "Active call")} · ${escapeHtml(request?.pickup.address || unit.station)}${request?.estimatedMinutes ? ` · ~${request.estimatedMinutes} min ETA` : ""}</small></span>${statusPill(unit.status)}</div>`;
       }).join("") : `<div class="empty-state">No units are currently responding.</div>`}</section>
-      <section class="panel live-card"><div class="live-card-head"><strong>Incident locations</strong><small>${active.length} active</small></div>${active.length ? active.slice(0, 5).map((request) => `<div class="live-unit"><span class="queue-number" style="width:28px;height:28px">✚</span><span class="live-unit-copy"><b>${escapeHtml(request.requestNumber)} · ${escapeHtml(titleCase(request.emergencyType))}</b><small>${escapeHtml(request.pickup.address)}</small></span>${statusPill(request.status)}</div>`).join("") : `<div class="empty-state">No incidents to map.</div>`}</section>
+      <section class="panel live-card"><div class="live-card-head"><strong>Incident locations</strong><small>${active.length} active</small></div>${active.length ? active.slice(0, 5).map((request) => `<div class="live-unit"><span class="queue-number" style="width:28px;height:28px">✚</span><span class="live-unit-copy"><b>${escapeHtml(request.requestNumber)} · ${escapeHtml(titleCase(request.emergencyType))}</b><small>${escapeHtml(request.pickup.address)}${request.estimatedMinutes ? ` · ~${request.estimatedMinutes} min ETA` : ""}</small></span>${statusPill(request.status)}</div>`).join("") : `<div class="empty-state">No incidents to map.</div>`}</section>
       <div class="tracking-note">Map positions are illustrative for this demo. Driver location updates can be sent securely through the fleet location API.</div></aside></div>`;
   $("#tracking-refresh").addEventListener("click", () => loadData().catch((error) => showToast(error.message, "error")));
 }
@@ -337,7 +350,7 @@ function renderTracking() {
 function renderFleet() {
   const ready = state.fleet.filter((unit) => unit.status === "available").length;
   $("#view-container").innerHTML = `${heading("VEHICLE MANAGEMENT", "Ambulance fleet", "See vehicle readiness, station assignment, and current crew.")}
-    <div class="metric-grid"><article class="metric-card"><div class="metric-top">Total units<span class="metric-icon">▰</span></div><div class="metric-value">${state.fleet.length}</div><div class="metric-foot">Across all response stations</div></article><article class="metric-card"><div class="metric-top">Ready to dispatch<span class="metric-icon teal">✓</span></div><div class="metric-value">${ready}</div><div class="metric-foot">Available for a new emergency</div></article><article class="metric-card"><div class="metric-top">On response<span class="metric-icon red">⌁</span></div><div class="metric-value">${state.fleet.filter((unit) => ["assigned", "on-scene"].includes(unit.status)).length}</div><div class="metric-foot">Assigned or at the scene</div></article><article class="metric-card"><div class="metric-top">Maintenance<span class="metric-icon amber">⚙</span></div><div class="metric-value">${state.fleet.filter((unit) => unit.status === "maintenance").length}</div><div class="metric-foot">Unavailable for dispatch</div></article></div>
+    <div class="metric-grid"><article class="metric-card"><div class="metric-top">Total units<span class="metric-icon">▰</span></div><div class="metric-value">${state.fleet.length}</div><div class="metric-foot">Across all response stations</div></article><article class="metric-card"><div class="metric-top">Ready to dispatch<span class="metric-icon teal">✓</span></div><div class="metric-value">${ready}</div><div class="metric-foot">Available for a new emergency</div></article><article class="metric-card"><div class="metric-top">On response<span class="metric-icon red">⌁</span></div><div class="metric-value">${state.fleet.filter((unit) => responseUnitStatuses.includes(unit.status)).length}</div><div class="metric-foot">Assigned or transporting</div></article><article class="metric-card"><div class="metric-top">Maintenance<span class="metric-icon amber">⚙</span></div><div class="metric-value">${state.fleet.filter((unit) => unit.status === "maintenance").length}</div><div class="metric-foot">Unavailable for dispatch</div></article></div>
     <section class="panel list-panel"><div class="panel-header"><div><h2>Response vehicles</h2><p class="panel-subtitle">Unit assignments and current availability</p></div></div><div class="table-wrap"><table><thead><tr><th>Call sign</th><th>Vehicle</th><th>Station</th><th>Assigned driver</th><th>Location</th><th>Status</th></tr></thead><tbody>${state.fleet.map((unit) => `<tr><td><span class="primary-cell">${escapeHtml(unit.callSign)}</span></td><td>${escapeHtml(unit.vehicle)}</td><td>${escapeHtml(unit.station)}</td><td>${escapeHtml(unit.driver?.name || "—")}</td><td>${Number(unit.location?.lat).toFixed(4)}, ${Number(unit.location?.lng).toFixed(4)}</td><td>${statusPill(unit.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty-state">No fleet vehicles found.</td></tr>`}</tbody></table></div></section>`;
 }
 
@@ -353,7 +366,7 @@ function renderDrivers() {
     activity.set(String(id), entry);
   });
   $("#view-container").innerHTML = `${heading("CREW OPERATIONS", "Driver activity", "A quick view of your active crew and their current response workload.")}
-    <div class="metric-grid"><article class="metric-card"><div class="metric-top">Active drivers<span class="metric-icon">♙</span></div><div class="metric-value">${state.drivers.length}</div><div class="metric-foot">Available on the roster</div></article><article class="metric-card"><div class="metric-top">Calls assigned<span class="metric-icon">▤</span></div><div class="metric-value">${[...activity.values()].reduce((sum, item) => sum + item.assigned, 0)}</div><div class="metric-foot">In loaded request history</div></article><article class="metric-card"><div class="metric-top">Calls completed<span class="metric-icon teal">✓</span></div><div class="metric-value">${[...activity.values()].reduce((sum, item) => sum + item.completed, 0)}</div><div class="metric-foot">Completed by listed drivers</div></article><article class="metric-card"><div class="metric-top">Crews on call<span class="metric-icon red">⌁</span></div><div class="metric-value">${state.fleet.filter((unit) => ["assigned", "on-scene"].includes(unit.status)).length}</div><div class="metric-foot">Currently responding</div></article></div>
+    <div class="metric-grid"><article class="metric-card"><div class="metric-top">Active drivers<span class="metric-icon">♙</span></div><div class="metric-value">${state.drivers.length}</div><div class="metric-foot">Available on the roster</div></article><article class="metric-card"><div class="metric-top">Calls assigned<span class="metric-icon">▤</span></div><div class="metric-value">${[...activity.values()].reduce((sum, item) => sum + item.assigned, 0)}</div><div class="metric-foot">In loaded request history</div></article><article class="metric-card"><div class="metric-top">Calls completed<span class="metric-icon teal">✓</span></div><div class="metric-value">${[...activity.values()].reduce((sum, item) => sum + item.completed, 0)}</div><div class="metric-foot">Completed by listed drivers</div></article><article class="metric-card"><div class="metric-top">Crews on call<span class="metric-icon red">⌁</span></div><div class="metric-value">${state.fleet.filter((unit) => responseUnitStatuses.includes(unit.status)).length}</div><div class="metric-foot">Currently responding</div></article></div>
     <section class="panel list-panel"><div class="panel-header"><div><h2>Driver roster</h2><p class="panel-subtitle">Call assignments and activity summary</p></div></div><div class="table-wrap"><table><thead><tr><th>Driver</th><th>Phone</th><th>License</th><th>Assigned calls</th><th>Completed</th><th>Active calls</th><th>Unit</th></tr></thead><tbody>${state.drivers.map((driver) => {
       const item = activity.get(String(driver._id)) || { assigned: 0, completed: 0, active: 0 };
       const unit = state.fleet.find((ambulance) => String(ambulance.driver?._id || ambulance.driver) === String(driver._id));
