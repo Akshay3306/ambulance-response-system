@@ -260,7 +260,7 @@ textarea.form-control { min-height: 78px; padding: 9px 10px; resize: vertical; }
 .form-stack input:focus { border-color: #9dafef; box-shadow: 0 0 0 3px #426cf512; }
 .form-stack .button { margin-top: 2px; }.form-stack .button span { font-size: 16px; }
 .form-error { min-height: 13px; margin: -7px 0 0; color: #c84454; font-size: 10px; }
-.demo-box { margin-top: 14px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fbfcfe; }
+.demo-box { display: none; margin-top: 14px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fbfcfe; }
 .demo-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #8693a7; font-size: 8px; font-weight: 700; letter-spacing: 1px; }.demo-heading .demo-dot { width: 6px; height: 6px; margin: 0; }
 .demo-accounts { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .demo-accounts button { display: flex; justify-content: space-between; gap: 5px; padding: 7px; border: 1px solid #eff1f5; border-radius: 5px; color: #617087; background: #fff; text-align: left; font-size: 9px; }
