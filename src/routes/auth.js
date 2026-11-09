@@ -21,7 +21,7 @@ router.post("/login", loginLimit, async (req, res, next) => {
     res.cookie("rr_token", token, {
       httpOnly: true,
       sameSite: "strict",
-      secure: process.env.COOKIE_SECURE === "true",
+      secure: process.env.COOKIE_SECURE === "true" || (process.env.COOKIE_SECURE !== "false" && process.env.NODE_ENV === "production"),
       maxAge: 8 * 60 * 60 * 1000,
     });
     res.json({ user: publicUser(user) });
@@ -32,7 +32,11 @@ router.post("/login", loginLimit, async (req, res, next) => {
 
 router.get("/me", authenticate, (req, res) => res.json({ user: publicUser(req.user) }));
 router.post("/logout", (_req, res) => {
-  res.clearCookie("rr_token", { httpOnly: true, sameSite: "strict", secure: process.env.COOKIE_SECURE === "true" });
+  res.clearCookie("rr_token", {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: process.env.COOKIE_SECURE === "true" || (process.env.COOKIE_SECURE !== "false" && process.env.NODE_ENV === "production"),
+  });
   res.status(204).end();
 });
 

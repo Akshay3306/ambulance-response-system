@@ -1,8 +1,10 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Ambulance = require("../models/Ambulance");
 const EmergencyRequest = require("../models/EmergencyRequest");
 const User = require("../models/User");
 const { authenticate, allowRoles } = require("../middleware/auth");
+const { parseCoordinate } = require("../lib/coordinates");
 
 const router = express.Router();
 router.use(authenticate);
@@ -31,8 +33,9 @@ router.get("/", async (req, res, next) => {
 
 router.patch("/:id/location", allowRoles("admin", "dispatcher", "driver"), async (req, res, next) => {
   try {
-    const lat = Number(req.body.lat);
-    const lng = Number(req.body.lng);
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid ambulance ID." });
+    const lat = parseCoordinate(req.body.lat);
+    const lng = parseCoordinate(req.body.lng);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
       return res.status(400).json({ error: "Valid latitude and longitude are required." });
     }

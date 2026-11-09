@@ -6,12 +6,35 @@ services:
     environment:
       PORT: 3000
       MONGODB_URI: mongodb://mongo:27017/rapid_response_ems
-      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:?Set a private JWT_SECRET in .env}
       COOKIE_SECURE: "false"
     depends_on:
       mongo:
         condition: service_healthy
     restart: unless-stopped
+  seed:
+    build: .
+    profiles: ["seed"]
+    command: ["npm", "run", "seed"]
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://mongo:27017/rapid_response_ems
+    depends_on:
+      mongo:
+        condition: service_healthy
+  bootstrap:
+    build: .
+    profiles: ["bootstrap"]
+    command: ["npm", "run", "create-user"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/rapid_response_ems
+      USER_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+      USER_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      USER_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      USER_ROLE: admin
+    depends_on:
+      mongo:
+        condition: service_healthy
   mongo:
     image: mongo:7
     volumes:

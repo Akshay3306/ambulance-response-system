@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rapid-response-bootstrap
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-admin
+          image: rapid-response-ems:1.0.0
+          imagePullPolicy: IfNotPresent
+          command: ["npm", "run", "create-user"]
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: rapid-response-config
+                  key: MONGODB_URI
+            - name: USER_ROLE
+              value: admin
+            - name: USER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: rapid-response-bootstrap-secret
+                  key: USER_NAME
+            - name: USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: rapid-response-bootstrap-secret
+                  key: USER_EMAIL
+            - name: USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rapid-response-bootstrap-secret
+                  key: USER_PASSWORD

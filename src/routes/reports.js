@@ -9,10 +9,26 @@ router.use(authenticate, allowRoles("admin", "dispatcher"));
 
 function dateFilter(query) {
   const filter = {};
-  const from = query.from && new Date(query.from);
-  const to = query.to && new Date(query.to);
-  if (from && !Number.isNaN(from.getTime())) filter.$gte = from;
-  if (to && !Number.isNaN(to.getTime())) filter.$lte = to;
+  for (const [key, operator] of [["from", "$gte"], ["to", "$lte"]]) {
+    if (query[key] === undefined) continue;
+    if (typeof query[key] !== "string" || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(query[key])) {
+      const error = new Error(`The ${key} date must be a valid ISO date.`);
+      error.status = 400;
+      throw error;
+    }
+    const date = new Date(query[key]);
+    if (Number.isNaN(date.getTime()) || new Date(`${query[key].slice(0, 10)}T00:00:00.000Z`).toISOString().slice(0, 10) !== query[key].slice(0, 10)) {
+      const error = new Error(`The ${key} date must be a valid ISO date.`);
+      error.status = 400;
+      throw error;
+    }
+    filter[operator] = date;
+  }
+  if (filter.$gte && filter.$lte && filter.$gte > filter.$lte) {
+    const error = new Error("The start date must be before the end date.");
+    error.status = 400;
+    throw error;
+  }
   return Object.keys(filter).length ? { createdAt: filter } : {};
 }
 
@@ -59,14 +75,18 @@ router.get("/utilization", async (req, res, next) => {
 
 router.get("/response-times", async (req, res, next) => {
   try {
-    const report = await EmergencyRequest.aggregate([
+    const [result] = await EmergencyRequest.aggregate([
       { $match: { ...dateFilter(req.query), dispatchedAt: { $ne: null }, arrivedAt: { $ne: null } } },
       { $project: { requestNumber: 1, emergencyType: 1, priority: 1, dispatchedAt: 1, arrivedAt: 1, minutes: { $divide: [{ $subtract: ["$arrivedAt", "$dispatchedAt"] }, 60000] } } },
-      { $sort: { arrivedAt: -1 } },
-      { $limit: 100 },
+      {
+        $facet: {
+          report: [{ $sort: { arrivedAt: -1 } }, { $limit: 100 }],
+          summary: [{ $group: { _id: null, avgMinutes: { $avg: "$minutes" }, total: { $sum: 1 } } }],
+        },
+      },
     ]);
-    const avgMinutes = report.length ? report.reduce((sum, item) => sum + item.minutes, 0) / report.length : null;
-    res.json({ report, avgMinutes });
+    const summary = result.summary[0] || { avgMinutes: null, total: 0 };
+    res.json({ report: result.report, avgMinutes: summary.avgMinutes, total: summary.total });
   } catch (error) {
     next(error);
   }

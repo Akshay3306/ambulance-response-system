@@ -15,6 +15,9 @@ const users = [
 ];
 
 async function seed() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("The demo seed creates predictable demo passwords and is disabled in production.");
+  }
   if (!process.env.MONGODB_URI) throw new Error("Set MONGODB_URI before seeding.");
   await mongoose.connect(process.env.MONGODB_URI);
   const savedUsers = {};
@@ -59,6 +62,16 @@ async function seed() {
       },
     ]);
     await Ambulance.updateOne({ callSign: "MED-02" }, { $set: { status: "assigned", driver: savedUsers.driver2._id, activeRequest: (await EmergencyRequest.findOne({ requestNumber: "EMS-240618-02" }))._id } });
+  }
+  const activeDriverAssignments = await EmergencyRequest.find({
+    status: { $in: ["dispatched", "en-route", "on-scene", "picked-up", "transporting"] },
+    assignedDriver: { $ne: null },
+  }).select("assignedDriver _id");
+  for (const request of activeDriverAssignments) {
+    await User.updateOne(
+      { _id: request.assignedDriver, activeRequest: null },
+      { $set: { activeRequest: request._id } }
+    );
   }
   console.log("Seed complete. Demo logins:");
   for (const entry of users) console.log(`  ${entry.role.padEnd(10)} ${entry.email} / ${entry.password}`);

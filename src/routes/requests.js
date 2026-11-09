@@ -6,21 +6,34 @@ const EmergencyRequest = require("../models/EmergencyRequest");
 const User = require("../models/User");
 const { authenticate, allowRoles } = require("../middleware/auth");
 const { canTransition } = require("../lib/requestStatus");
+const { parseCoordinate } = require("../lib/coordinates");
 
 const router = express.Router();
+const activeCallStatuses = ["dispatched", "en-route", "on-scene", "picked-up", "transporting"];
 router.use(authenticate);
 
 router.get("/", async (req, res, next) => {
   try {
+    let limit = 100;
+    if (req.query.limit !== undefined) {
+      if (typeof req.query.limit !== "string" || !/^\d+$/.test(req.query.limit) || Number(req.query.limit) < 1 || Number(req.query.limit) > 200) {
+        return res.status(400).json({ error: "Request limit must be a whole number between 1 and 200." });
+      }
+      limit = Number(req.query.limit);
+    }
     const filter = {};
     if (req.user.role === "driver") filter.assignedDriver = req.user._id;
     if (req.user.role === "requester") filter["requester.userId"] = req.user._id;
-    if (req.query.status && ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"].includes(req.query.status)) {
+    const statuses = ["pending", "dispatched", "en-route", "on-scene", "picked-up", "transporting", "completed", "cancelled"];
+    if (req.query.status !== undefined && (typeof req.query.status !== "string" || !statuses.includes(req.query.status))) {
+      return res.status(400).json({ error: "Select a valid request status." });
+    }
+    if (req.query.status !== undefined) {
       filter.status = req.query.status;
     }
     const requests = await EmergencyRequest.find(filter)
       .sort({ createdAt: -1 })
-      .limit(Math.min(Number(req.query.limit) || 100, 200))
+      .limit(limit)
       .populate("assignedAmbulance", "callSign vehicle location status")
       .populate("assignedDriver", "name phone");
     res.json({ requests });
@@ -31,20 +44,32 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", allowRoles("admin", "dispatcher", "requester"), async (req, res, next) => {
   try {
-    const body = req.body;
+    const body = req.body || {};
     const name = String(body.name || req.user.name).trim();
     const phone = String(body.phone || req.user.phone).trim();
     const address = String(body.address || "").trim();
-    const lat = Number(body.lat);
-    const lng = Number(body.lng);
+    if (name.length > 100 || phone.length > 30 || address.length > 250 ||
+      String(body.patientName || "").length > 100 || String(body.notes || "").length > 1000) {
+      return res.status(400).json({ error: "Request details exceed the allowed field lengths." });
+    }
+    if ([body.name, body.phone, body.address, body.patientName, body.notes].some((value) =>
+      value !== undefined && value !== null && typeof value !== "string"
+    )) {
+      return res.status(400).json({ error: "Contact and incident details must be text." });
+    }
+    const lat = parseCoordinate(body.lat);
+    const lng = parseCoordinate(body.lng);
     const types = ["medical", "cardiac", "trauma", "obstetric", "other"];
     if (!name || !phone || !address || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
       return res.status(400).json({ error: "Contact name, phone, pickup address, and valid coordinates are required." });
     }
     if (!types.includes(body.emergencyType)) return res.status(400).json({ error: "Select a valid emergency type." });
-    const priority = ["critical", "high", "standard"].includes(body.priority) ? body.priority : "high";
+    if (body.priority !== undefined && !["critical", "high", "standard"].includes(body.priority)) {
+      return res.status(400).json({ error: "Select a valid request priority." });
+    }
+    const priority = body.priority || "high";
     const request = await EmergencyRequest.create({
-      requestNumber: `EMS-${Date.now().toString().slice(-6)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+      requestNumber: `EMS-${Date.now().toString().slice(-6)}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`,
       requester: { userId: req.user.role === "requester" ? req.user._id : null, name, phone },
       patientName: String(body.patientName || "").trim(),
       emergencyType: body.emergencyType,
@@ -69,18 +94,42 @@ router.patch("/:id/dispatch", allowRoles("admin", "dispatcher"), async (req, res
     if (!driver) return res.status(400).json({ error: "Choose an active ambulance driver." });
     const driverBusy = await EmergencyRequest.exists({
       assignedDriver: driver._id,
-      status: { $in: ["dispatched", "en-route", "on-scene", "picked-up", "transporting"] },
+      status: { $in: activeCallStatuses },
     });
     if (driverBusy) return res.status(409).json({ error: "That driver is already assigned to an active call." });
+    if (driver.activeRequest) {
+      const activeReservation = await EmergencyRequest.exists({
+        _id: driver.activeRequest,
+        assignedDriver: driver._id,
+        status: { $in: activeCallStatuses },
+      });
+      if (activeReservation) return res.status(409).json({ error: "That driver is already assigned to an active call." });
+      await User.updateOne({ _id: driver._id, activeRequest: driver.activeRequest }, { $set: { activeRequest: null } });
+    }
 
     const request = await EmergencyRequest.findOne({ _id: req.params.id, status: "pending" });
     if (!request) return res.status(404).json({ error: "Pending request not found." });
-    const ambulance = await Ambulance.findOneAndUpdate(
-      { _id: ambulanceId, status: "available", activeRequest: null },
-      { $set: { status: "assigned", driver: driver._id, activeRequest: request._id } },
+    const reservedDriver = await User.findOneAndUpdate(
+      { _id: driver._id, role: "driver", active: true, activeRequest: null },
+      { $set: { activeRequest: request._id } },
       { new: true }
     );
-    if (!ambulance) return res.status(409).json({ error: "That ambulance is no longer available. Refresh the fleet and try again." });
+    if (!reservedDriver) return res.status(409).json({ error: "That driver was assigned to another call. Refresh the dispatch queue." });
+    let ambulance;
+    try {
+      ambulance = await Ambulance.findOneAndUpdate(
+        { _id: ambulanceId, status: "available", activeRequest: null },
+        { $set: { status: "assigned", driver: driver._id, activeRequest: request._id } },
+        { new: true }
+      );
+    } catch (error) {
+      await User.updateOne({ _id: reservedDriver._id, activeRequest: request._id }, { $set: { activeRequest: null } });
+      throw error;
+    }
+    if (!ambulance) {
+      await User.updateOne({ _id: reservedDriver._id, activeRequest: request._id }, { $set: { activeRequest: null } });
+      return res.status(409).json({ error: "That ambulance is no longer available. Refresh the fleet and try again." });
+    }
 
     let assignedRequest;
     try {
@@ -97,15 +146,21 @@ router.patch("/:id/dispatch", allowRoles("admin", "dispatcher"), async (req, res
         { new: true, runValidators: true }
       );
       if (!assignedRequest) {
-        await Ambulance.updateOne({ _id: ambulance._id, activeRequest: request._id }, {
-          $set: { status: "available", driver: null, activeRequest: null },
-        });
+        await Promise.all([
+          Ambulance.updateOne({ _id: ambulance._id, activeRequest: request._id }, {
+            $set: { status: "available", driver: null, activeRequest: null },
+          }),
+          User.updateOne({ _id: reservedDriver._id, activeRequest: request._id }, { $set: { activeRequest: null } }),
+        ]);
         return res.status(409).json({ error: "This request was already assigned. Refresh the dispatch queue." });
       }
     } catch (error) {
-      await Ambulance.updateOne({ _id: ambulance._id, activeRequest: request._id }, {
-        $set: { status: "available", driver: null, activeRequest: null },
-      });
+      await Promise.all([
+        Ambulance.updateOne({ _id: ambulance._id, activeRequest: request._id }, {
+          $set: { status: "available", driver: null, activeRequest: null },
+        }),
+        User.updateOne({ _id: reservedDriver._id, activeRequest: request._id }, { $set: { activeRequest: null } }),
+      ]);
       throw error;
     }
     await assignedRequest.populate([
@@ -150,10 +205,19 @@ router.patch("/:id/status", async (req, res, next) => {
       { new: true, runValidators: true }
     );
     if (!updatedRequest) return res.status(409).json({ error: "The request status changed. Refresh and try again." });
-    if ((nextStatus === "completed" || nextStatus === "cancelled") && updatedRequest.assignedAmbulance) {
-      await Ambulance.updateOne({ _id: updatedRequest.assignedAmbulance, activeRequest: updatedRequest._id }, {
-        $set: { status: "available", activeRequest: null, driver: null },
-      });
+    if (nextStatus === "completed" || nextStatus === "cancelled") {
+      const releaseOperations = [];
+      if (updatedRequest.assignedAmbulance) {
+        releaseOperations.push(Ambulance.updateOne({ _id: updatedRequest.assignedAmbulance, activeRequest: updatedRequest._id }, {
+          $set: { status: "available", activeRequest: null, driver: null },
+        }));
+      }
+      if (updatedRequest.assignedDriver) {
+        releaseOperations.push(User.updateOne({ _id: updatedRequest.assignedDriver, activeRequest: updatedRequest._id }, {
+          $set: { activeRequest: null },
+        }));
+      }
+      await Promise.all(releaseOperations);
     } else if (nextStatus === "on-scene" && updatedRequest.assignedAmbulance) {
       await Ambulance.updateOne({ _id: updatedRequest.assignedAmbulance, activeRequest: updatedRequest._id }, { $set: { status: "on-scene" } });
     } else if (["picked-up", "transporting"].includes(nextStatus) && updatedRequest.assignedAmbulance) {

@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ["admin", "dispatcher", "driver", "requester"], required: true },
     active: { type: Boolean, default: true },
     licenseNumber: { type: String, default: "" },
+    activeRequest: { type: mongoose.Schema.Types.ObjectId, ref: "EmergencyRequest", default: null },
   },
   { timestamps: true }
 );
